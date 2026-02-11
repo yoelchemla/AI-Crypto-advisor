@@ -1,0 +1,162 @@
+.dashboard-container {
+  min-height: 100vh;
+  padding: 20px;
+  color: white;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.dashboard-header h1 {
+  font-size: 36px;
+  font-weight: 700;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  max-width: 1200px;
+  margin: 0 auto 30px;
+}
+
+.dashboard-card {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  color: #333;
+}
+
+.dashboard-card h2 {
+  margin-bottom: 20px;
+  font-size: 24px;
+  color: #333;
+  border-bottom: 2px solid #e0e0e0;
+  padding-bottom: 12px;
+}
+
+.news-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.news-item {
+  padding-bottom: 15px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.news-item:last-child {
+  border-bottom: none;
+}
+
+.news-item h3 {
+  font-size: 18px;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.news-source {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.news-link {
+  color: #667eea;
+  text-decoration: none;
+  font-size: 14px;
+  display: inline-block;
+  margin-bottom: 10px;
+}
+
+.news-link:hover {
+  text-decoration: underline;
+}
+
+.prices-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.price-item {
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.price-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.price-header h3 {
+  font-size: 18px;
+  color: #333;
+  margin: 0;
+}
+
+.price-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #333;
+}
+
+.price-change {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.insight-content {
+  line-height: 1.8;
+  font-size: 16px;
+  color: #555;
+}
+
+.meme-content {
+  text-align: center;
+}
+
+.meme-image {
+  max-width: 100%;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  max-height: 400px;
+  object-fit: contain;
+}
+
+.meme-title {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 15px;
+}
+
+.refresh-btn {
+  display: block;
+  margin: 30px auto;
+  max-width: 200px;
+}
+
+@media (max-width: 768px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-header {
+    flex-direction: column;
+    gap: 15px;
+    align-items: flex-start;
+  }
+}
