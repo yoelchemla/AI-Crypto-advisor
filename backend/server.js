@@ -14,7 +14,8 @@ const PORT = process.env.PORT || 5001;
 // Allowed origins (frontend URLs)
 const allowedOrigins = [
   'http://localhost:3000',
-  'https://ai-crypto-advisor-omega.vercel.app'
+  'https://ai-crypto-advisor-omega.vercel.app',
+  'https://ai-crypto-advisor-1tlo.onrender.com'
 ];
 
 // CORS middleware
