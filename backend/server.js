@@ -12,28 +12,8 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 
 // Middleware
-// CORS configuration - supports multiple origins for deployment
-const allowedOrigins = process.env.CORS_ORIGIN 
-  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
-  : ['http://localhost:3000'];
-
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    // In production, allow specified origins; in development, allow localhost
-    if (process.env.NODE_ENV === 'production') {
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    } else {
-      // In development, allow localhost
-      callback(null, true);
-    }
-  },
+  origin: 'http://localhost:3000',
   credentials: true
 }));
 app.use(express.json());
