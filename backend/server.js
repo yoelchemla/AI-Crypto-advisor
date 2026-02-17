@@ -12,10 +12,27 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 
 // Middleware
+// CORS configuration - supports multiple origins for deployment
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://ai-crypto-advisor-omega.vercel.app'
+];
+
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    // In production, allow specified origins
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
+
 app.use(express.json());
 
 // Log all requests
