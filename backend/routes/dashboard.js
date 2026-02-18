@@ -5,6 +5,10 @@ const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
+/* =========================
+   Preferences
+========================= */
+
 // Get user preferences
 router.get('/preferences', authenticateToken, (req, res) => {
   db.get(
@@ -29,8 +33,13 @@ router.post('/preferences', authenticateToken, (req, res) => {
 
   db.run(
     'INSERT INTO user_preferences (user_id, interested_assets, investor_type, content_types) VALUES (?, ?, ?, ?)',
-    [req.user.id, JSON.stringify(interested_assets), investor_type, JSON.stringify(content_types)],
-    function(err) {
+    [
+      req.user.id,
+      JSON.stringify(interested_assets),
+      investor_type,
+      JSON.stringify(content_types)
+    ],
+    function (err) {
       if (err) {
         return res.status(500).json({ error: 'Failed to save preferences' });
       }
@@ -39,20 +48,21 @@ router.post('/preferences', authenticateToken, (req, res) => {
   );
 });
 
-// Get market news from CryptoPanic API
+/* =========================
+   News
+========================= */
+
 router.get('/news', authenticateToken, async (req, res) => {
   try {
-    // Get user preferences to filter news
     db.get(
       'SELECT * FROM user_preferences WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
       [req.user.id],
-      async (err, preferences) => {
+      async (err) => {
         if (err) {
           return res.status(500).json({ error: 'Database error' });
         }
 
         try {
-          // CryptoPanic API (free tier - no API key needed for public feed)
           const response = await axios.get('https://cryptopanic.com/api/v1/posts/', {
             params: {
               auth_token: process.env.CRYPTOPANIC_API_KEY || '',
@@ -63,9 +73,8 @@ router.get('/news', authenticateToken, async (req, res) => {
           });
 
           const news = response.data.results || [];
-          res.json({ news: news.slice(0, 5) }); // Return top 5 news items
+          res.json({ news: news.slice(0, 5) });
         } catch (apiError) {
-          // Fallback to static news if API fails
           res.json({
             news: [
               {
@@ -90,53 +99,39 @@ router.get('/news', authenticateToken, async (req, res) => {
   }
 });
 
-// Get coin prices from CoinGecko API
-router.get('/prices', authenticateToken, async (req, res) => {
-  try {
-    db.get(
-      'SELECT * FROM user_preferences WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
-      [req.user.id],
-      async (err, preferences) => {
-        if (err) {
-          return res.status(500).json({ error: 'Database error' });
-        }
+/* =========================
+   Prices (MOCK – production safe)
+========================= */
 
-        try {
-          // Default coins or from preferences
-          let coins = ['bitcoin', 'ethereum', 'cardano', 'solana', 'polkadot'];
-          if (preferences) {
-            const assets = JSON.parse(preferences.interested_assets);
-            coins = assets.slice(0, 5); // Limit to 5 coins
-          }
-
-          // CoinGecko API (free, no API key needed)
-          const response = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
-            params: {
-              ids: coins.join(','),
-              vs_currencies: 'usd',
-              include_24hr_change: true
-            }
-          });
-
-          const prices = Object.entries(response.data).map(([id, data]) => ({
-            id,
-            name: id.charAt(0).toUpperCase() + id.slice(1),
-            price: data.usd,
-            change_24h: data.usd_24h_change
-          }));
-
-          res.json({ prices });
-        } catch (apiError) {
-          res.status(500).json({ error: 'Failed to fetch prices' });
-        }
+router.get('/prices', authenticateToken, (req, res) => {
+  res.json({
+    prices: [
+      {
+        id: 'bitcoin',
+        name: 'Bitcoin',
+        price: 65000,
+        change_24h: 1.8
+      },
+      {
+        id: 'ethereum',
+        name: 'Ethereum',
+        price: 3200,
+        change_24h: -0.6
+      },
+      {
+        id: 'solana',
+        name: 'Solana',
+        price: 145,
+        change_24h: 3.1
       }
-    );
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch prices' });
-  }
+    ]
+  });
 });
 
-// Get AI insight using OpenRouter or Hugging Face
+/* =========================
+   Insight
+========================= */
+
 router.get('/insight', authenticateToken, async (req, res) => {
   try {
     db.get(
@@ -147,57 +142,22 @@ router.get('/insight', authenticateToken, async (req, res) => {
           return res.status(500).json({ error: 'Database error' });
         }
 
-        try {
-          const investorType = preferences ? preferences.investor_type : 'General Investor';
-          const contentTypes = preferences ? JSON.parse(preferences.content_types) : ['Market News'];
+        const investorType = preferences ? preferences.investor_type : 'General Investor';
 
-          // Try OpenRouter first (free tier available)
-          if (process.env.OPENROUTER_API_KEY) {
-            try {
-              const response = await axios.post(
-                'https://openrouter.ai/api/v1/chat/completions',
-                {
-                  model: 'meta-llama/llama-3.2-3b-instruct:free',
-                  messages: [
-                    {
-                      role: 'system',
-                      content: 'You are a crypto market analyst providing daily insights.'
-                    },
-                    {
-                      role: 'user',
-                      content: `Provide a brief daily crypto market insight for a ${investorType} interested in ${contentTypes.join(', ')}. Keep it under 100 words.`
-                    }
-                  ]
-                },
-                {
-                  headers: {
-                    'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                    'Content-Type': 'application/json'
-                  }
-                }
-              );
+        const staticInsights = {
+          HODLer:
+            'For HODLers: Long-term fundamentals remain strong. Consider DCA and ignore short-term volatility.',
+          'Day Trader':
+            'For Day Traders: Increased volatility detected. Watch support and resistance levels closely.',
+          'NFT Collector':
+            'NFT markets are stabilizing. Blue-chip collections show resilience.',
+          'General Investor':
+            'Diversification remains key. Stay updated on macro trends and regulatory news.'
+        };
 
-              const insight = response.data.choices[0].message.content;
-              return res.json({ insight });
-            } catch (openRouterError) {
-              console.log('OpenRouter failed, trying fallback');
-            }
-          }
-
-          // Fallback: Static insights based on investor type
-          const staticInsights = {
-            'HODLer': 'For HODLers: The market shows resilience. Long-term holders should focus on fundamentals and DCA strategies. Volatility is normal - stay the course.',
-            'Day Trader': 'For Day Traders: Watch for key support/resistance levels. Volume indicators suggest increased activity. Consider tight stop-losses in current conditions.',
-            'NFT Collector': 'For NFT Collectors: The NFT market is showing signs of recovery. Blue-chip collections remain stable. Watch for new drops from established artists.',
-            'General Investor': 'Market analysis suggests cautious optimism. Diversification remains key. Keep an eye on regulatory developments and major exchange movements.'
-          };
-
-          res.json({
-            insight: staticInsights[investorType] || staticInsights['General Investor']
-          });
-        } catch (error) {
-          res.status(500).json({ error: 'Failed to generate insight' });
-        }
+        res.json({
+          insight: staticInsights[investorType] || staticInsights['General Investor']
+        });
       }
     );
   } catch (error) {
@@ -205,10 +165,12 @@ router.get('/insight', authenticateToken, async (req, res) => {
   }
 });
 
-// Get crypto meme
+/* =========================
+   Meme
+========================= */
+
 router.get('/meme', authenticateToken, async (req, res) => {
   try {
-    // Try to get meme from Reddit API (free, no auth needed)
     try {
       const response = await axios.get('https://www.reddit.com/r/cryptomemes/hot.json', {
         params: { limit: 10 }
@@ -226,11 +188,8 @@ router.get('/meme', authenticateToken, async (req, res) => {
           source: 'Reddit'
         });
       }
-    } catch (redditError) {
-      console.log('Reddit API failed, using fallback');
-    }
+    } catch (redditError) {}
 
-    // Fallback: Static meme URLs
     const fallbackMemes = [
       {
         url: 'https://i.imgur.com/example1.jpg',
@@ -250,7 +209,10 @@ router.get('/meme', authenticateToken, async (req, res) => {
   }
 });
 
-// Submit feedback (thumbs up/down)
+/* =========================
+   Feedback
+========================= */
+
 router.post('/feedback', authenticateToken, (req, res) => {
   const { content_type, content_id, vote } = req.body;
 
@@ -259,13 +221,13 @@ router.post('/feedback', authenticateToken, (req, res) => {
   }
 
   if (vote !== 1 && vote !== -1) {
-    return res.status(400).json({ error: 'Vote must be 1 (up) or -1 (down)' });
+    return res.status(400).json({ error: 'Vote must be 1 or -1' });
   }
 
   db.run(
     'INSERT INTO feedback (user_id, content_type, content_id, vote) VALUES (?, ?, ?, ?)',
     [req.user.id, content_type, content_id, vote],
-    function(err) {
+    function (err) {
       if (err) {
         return res.status(500).json({ error: 'Failed to save feedback' });
       }
