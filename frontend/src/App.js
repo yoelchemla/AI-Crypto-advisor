@@ -4,6 +4,7 @@ import Login from './components/Login';
 import Signup from './components/Signup';
 import Onboarding from './components/Onboarding';
 import Dashboard from './components/Dashboard';
+import api from './utils/api';
 import './App.css';
 
 function App() {
@@ -12,30 +13,24 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is logged in
     const token = localStorage.getItem('token');
-    if (token) {
-      setIsAuthenticated(true);
-      // Check if user has completed onboarding
-      checkOnboardingStatus(token);
-    } else {
+
+    if (!token) {
       setLoading(false);
+      return;
     }
+
+    setIsAuthenticated(true);
+    checkOnboardingStatus();
   }, []);
 
-  const checkOnboardingStatus = async (token) => {
+  const checkOnboardingStatus = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/dashboard/preferences', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setHasCompletedOnboarding(!!data);
-      }
+      const response = await api.get('/dashboard/preferences');
+      setHasCompletedOnboarding(!!response.data);
     } catch (error) {
       console.error('Error checking onboarding status:', error);
+      setHasCompletedOnboarding(false);
     } finally {
       setLoading(false);
     }
@@ -44,7 +39,7 @@ function App() {
   const handleLogin = (token) => {
     localStorage.setItem('token', token);
     setIsAuthenticated(true);
-    checkOnboardingStatus(token);
+    checkOnboardingStatus();
   };
 
   const handleLogout = () => {
@@ -67,51 +62,43 @@ function App() {
         <Route
           path="/login"
           element={
-            isAuthenticated ? (
-              <Navigate to={hasCompletedOnboarding ? '/dashboard' : '/onboarding'} />
-            ) : (
-              <Login onLogin={handleLogin} />
-            )
+            isAuthenticated
+              ? <Navigate to={hasCompletedOnboarding ? '/dashboard' : '/onboarding'} />
+              : <Login onLogin={handleLogin} />
           }
         />
+
         <Route
           path="/signup"
           element={
-            isAuthenticated ? (
-              <Navigate to={hasCompletedOnboarding ? '/dashboard' : '/onboarding'} />
-            ) : (
-              <Signup onLogin={handleLogin} />
-            )
+            isAuthenticated
+              ? <Navigate to={hasCompletedOnboarding ? '/dashboard' : '/onboarding'} />
+              : <Signup onLogin={handleLogin} />
           }
         />
+
         <Route
           path="/onboarding"
           element={
-            isAuthenticated ? (
-              hasCompletedOnboarding ? (
-                <Navigate to="/dashboard" />
-              ) : (
-                <Onboarding onComplete={handleOnboardingComplete} />
-              )
-            ) : (
-              <Navigate to="/login" />
-            )
+            isAuthenticated
+              ? hasCompletedOnboarding
+                ? <Navigate to="/dashboard" />
+                : <Onboarding onComplete={handleOnboardingComplete} />
+              : <Navigate to="/login" />
           }
         />
+
         <Route
           path="/dashboard"
           element={
-            isAuthenticated ? (
-              hasCompletedOnboarding ? (
-                <Dashboard onLogout={handleLogout} />
-              ) : (
-                <Navigate to="/onboarding" />
-              )
-            ) : (
-              <Navigate to="/login" />
-            )
+            isAuthenticated
+              ? hasCompletedOnboarding
+                ? <Dashboard onLogout={handleLogout} />
+                : <Navigate to="/onboarding" />
+              : <Navigate to="/login" />
           }
         />
+
         <Route path="/" element={<Navigate to="/login" />} />
       </Routes>
     </Router>
@@ -119,3 +106,4 @@ function App() {
 }
 
 export default App;
+// force commit
