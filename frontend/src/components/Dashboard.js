@@ -1,221 +1,199 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import api from '../utils/api';
 import './Dashboard.css';
 
 const Dashboard = ({ onLogout }) => {
   const [loading, setLoading] = useState(true);
-  const [news, setNews] = useState([]);
   const [prices, setPrices] = useState([]);
+  const [news, setNews] = useState([]);
   const [insight, setInsight] = useState('');
   const [meme, setMeme] = useState(null);
-  const [votedItems, setVotedItems] = useState(new Set());
+  const [error, setError] = useState('');
+
+  const fetchPricesClient = async () => {
+    const coins = ['bitcoin', 'ethereum', 'solana'];
+    const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${coins.join(
+      ','
+    )}&price_change_percentage=24h`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    return (Array.isArray(data) ? data : []).map((c) => ({
+      id: c.id,
+      name: c.name,
+      price: c.current_price,
+      change_24h: c.price_change_percentage_24h
+    }));
+  };
+
+  const fetchNewsClient = async () => {
+    const url = `https://min-api.cryptocompare.com/data/v2/news/?lang=EN`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const arr = data?.Data;
+    const list = Array.isArray(arr) ? arr : [];
+    return list.slice(0, 5).map((n) => ({
+      title: n.title,
+      url: n.url,
+      source: { title: n.source || 'CryptoCompare' }
+    }));
+  };
+
+  const fetchMemeClient = async () => {
+    const url = `https://www.reddit.com/r/cryptomemes/hot.json?limit=10`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const posts = (data?.data?.children || [])
+      .map((x) => x.data)
+      .filter((p) => p && p.post_hint === 'image' && p.url);
+
+    if (!posts.length) return null;
+
+    const pick = posts[Math.floor(Math.random() * posts.length)];
+    return { url: pick.url, title: pick.title, source: 'Reddit' };
+  };
+
+  const fetchInsightBackend = async () => {
+    const res = await api.get('/dashboard/insight');
+    return res.data?.insight || '';
+  };
+
+  const load = async () => {
+    setLoading(true);
+    setError('');
+
+    const results = await Promise.allSettled([
+      fetchPricesClient(),
+      fetchNewsClient(),
+      fetchMemeClient(),
+      fetchInsightBackend()
+    ]);
+
+    const [p, n, m, i] = results;
+
+    if (p.status === 'fulfilled') setPrices(p.value);
+    else setPrices([]);
+
+    if (n.status === 'fulfilled') setNews(n.value);
+    else setNews([]);
+
+    if (m.status === 'fulfilled') setMeme(m.value);
+    else setMeme(null);
+
+    if (i.status === 'fulfilled') setInsight(i.value);
+    else setInsight('Crypto markets remain volatile. Diversify, manage risk, and stay informed.');
+
+    // לא חובה
+    if (p.status === 'rejected' || n.status === 'rejected') {
+      setError('Some live data sources are unavailable right now.');
+    }
+
+    setLoading(false);
+  };
 
   useEffect(() => {
-    loadDashboardData();
+    load();
   }, []);
 
-  const loadDashboardData = async () => {
-    setLoading(true);
+  const sendFeedback = async (content_type, content_id, vote) => {
     try {
-      // Load all dashboard sections in parallel
-      const [newsRes, pricesRes, insightRes, memeRes] = await Promise.all([
-        api.get('/dashboard/news'),
-        api.get('/dashboard/prices'),
-        api.get('/dashboard/insight'),
-        api.get('/dashboard/meme')
-      ]);
-
-      setNews(newsRes.data.news || []);
-      setPrices(pricesRes.data.prices || []);
-      setInsight(insightRes.data.insight || '');
-      setMeme(memeRes.data || null);
-    } catch (error) {
-      console.error('Error loading dashboard:', error);
-    } finally {
-      setLoading(false);
+      await api.post('/dashboard/feedback', { content_type, content_id, vote });
+    } catch (e) {
+      console.error('Feedback failed', e?.response?.data || e?.message);
     }
   };
 
-  const handleVote = async (contentType, contentId, vote) => {
-    const voteKey = `${contentType}-${contentId}`;
-    if (votedItems.has(voteKey)) {
-      return; // Already voted
-    }
-
-    try {
-      await api.post('/dashboard/feedback', {
-        content_type: contentType,
-        content_id: contentId,
-        vote: vote
-      });
-      setVotedItems(prev => new Set([...prev, voteKey]));
-    } catch (error) {
-      console.error('Error submitting vote:', error);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="dashboard-container">
-        <div className="loading">Loading your dashboard...</div>
-      </div>
-    );
-  }
+  if (loading) return <div className="loading">Loading dashboard...</div>;
 
   return (
     <div className="dashboard-container">
-      <header className="dashboard-header">
-        <h1>Your Crypto Dashboard</h1>
+      <div className="dashboard-header">
+        <h1>Daily Dashboard</h1>
         <button className="btn btn-secondary" onClick={onLogout}>
           Logout
         </button>
-      </header>
+      </div>
+
+      {error && <div className="error">{error}</div>}
 
       <div className="dashboard-grid">
-        {/* Market News Section */}
-        <div className="dashboard-card">
-          <h2>📰 Market News</h2>
-          <div className="news-list">
-            {news.length > 0 ? (
-              news.map((item, index) => {
-                const voteKey = `news-${index}`;
-                const hasVoted = votedItems.has(voteKey);
-                return (
-                  <div key={index} className="news-item">
-                    <h3>{item.title}</h3>
-                    <p className="news-source">{item.source?.title || 'Crypto News'}</p>
-                    {item.url && item.url !== '#' && (
-                      <a href={item.url} target="_blank" rel="noopener noreferrer" className="news-link">
-                        Read more →
-                      </a>
-                    )}
-                    <div className="vote-buttons">
-                      <button
-                        className={`vote-btn up ${hasVoted ? 'disabled' : ''}`}
-                        onClick={() => handleVote('news', index, 1)}
-                        disabled={hasVoted}
-                      >
-                        👍
-                      </button>
-                      <button
-                        className={`vote-btn down ${hasVoted ? 'disabled' : ''}`}
-                        onClick={() => handleVote('news', index, -1)}
-                        disabled={hasVoted}
-                      >
-                        👎
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <p>No news available at the moment.</p>
-            )}
-          </div>
-        </div>
-
-        {/* Coin Prices Section */}
-        <div className="dashboard-card">
+        <div className="card">
           <h2>💰 Coin Prices</h2>
-          <div className="prices-list">
-            {prices.length > 0 ? (
-              prices.map((coin, index) => {
-                const voteKey = `price-${coin.id}`;
-                const hasVoted = votedItems.has(voteKey);
-                const changeColor = coin.change_24h >= 0 ? '#28a745' : '#dc3545';
-                return (
-                  <div key={coin.id} className="price-item">
-                    <div className="price-header">
-                      <h3>{coin.name}</h3>
-                      <span className="price-value">${coin.price?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="price-change" style={{ color: changeColor }}>
-                      {coin.change_24h >= 0 ? '↑' : '↓'} {Math.abs(coin.change_24h?.toFixed(2) || 0)}%
-                    </div>
-                    <div className="vote-buttons">
-                      <button
-                        className={`vote-btn up ${hasVoted ? 'disabled' : ''}`}
-                        onClick={() => handleVote('price', coin.id, 1)}
-                        disabled={hasVoted}
-                      >
-                        👍
-                      </button>
-                      <button
-                        className={`vote-btn down ${hasVoted ? 'disabled' : ''}`}
-                        onClick={() => handleVote('price', coin.id, -1)}
-                        disabled={hasVoted}
-                      >
-                        👎
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <p>No price data available.</p>
-            )}
-          </div>
-        </div>
-
-        {/* AI Insight Section */}
-        <div className="dashboard-card">
-          <h2>🤖 AI Insight of the Day</h2>
-          <div className="insight-content">
-            <p>{insight || 'Loading insight...'}</p>
-            {insight && (
-              <div className="vote-buttons">
-                <button
-                  className={`vote-btn up ${votedItems.has('insight-daily') ? 'disabled' : ''}`}
-                  onClick={() => handleVote('insight', 'daily', 1)}
-                  disabled={votedItems.has('insight-daily')}
-                >
-                  👍
-                </button>
-                <button
-                  className={`vote-btn down ${votedItems.has('insight-daily') ? 'disabled' : ''}`}
-                  onClick={() => handleVote('insight', 'daily', -1)}
-                  disabled={votedItems.has('insight-daily')}
-                >
-                  👎
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Meme Section */}
-        <div className="dashboard-card">
-          <h2>😄 Fun Crypto Meme</h2>
-          {meme ? (
-            <div className="meme-content">
-              <img src={meme.url} alt={meme.title} className="meme-image" />
-              <p className="meme-title">{meme.title}</p>
-              <div className="vote-buttons">
-                <button
-                  className={`vote-btn up ${votedItems.has('meme-daily') ? 'disabled' : ''}`}
-                  onClick={() => handleVote('meme', 'daily', 1)}
-                  disabled={votedItems.has('meme-daily')}
-                >
-                  👍
-                </button>
-                <button
-                  className={`vote-btn down ${votedItems.has('meme-daily') ? 'disabled' : ''}`}
-                  onClick={() => handleVote('meme', 'daily', -1)}
-                  disabled={votedItems.has('meme-daily')}
-                >
-                  👎
-                </button>
-              </div>
-            </div>
+          {prices.length === 0 ? (
+            <p>No price data available.</p>
           ) : (
-            <p>No meme available at the moment.</p>
+            <ul className="prices-list">
+              {prices.map((c) => (
+                <li key={c.id} className="price-item">
+                  <strong>{c.name}</strong> — ${c.price}{' '}
+                  {typeof c.change_24h === 'number' && (
+                    <span className={c.change_24h >= 0 ? 'pos' : 'neg'}>
+                      ({c.change_24h.toFixed(2)}%)
+                    </span>
+                  )}
+                  <span style={{ marginLeft: 10 }}>
+                    <button onClick={() => sendFeedback('price', c.id, 1)}>👍</button>
+                    <button onClick={() => sendFeedback('price', c.id, -1)}>👎</button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="card">
+          <h2>📰 Market News</h2>
+          {news.length === 0 ? (
+            <p>No news available at the moment.</p>
+          ) : (
+            <ul className="news-list">
+              {news.map((n, idx) => (
+                <li key={n.url || idx} className="news-item">
+                  <a href={n.url} target="_blank" rel="noreferrer">
+                    {n.title}
+                  </a>
+                  <div className="news-meta">
+                    <small>{n.source?.title || 'Source'}</small>
+                    <span style={{ marginLeft: 10 }}>
+                      <button onClick={() => sendFeedback('news', n.url || String(idx), 1)}>👍</button>
+                      <button onClick={() => sendFeedback('news', n.url || String(idx), -1)}>👎</button>
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="card">
+          <h2>🤖 AI Insight of the Day</h2>
+          <p>{insight}</p>
+        </div>
+
+        <div className="card">
+          <h2>😄 Fun Crypto Meme</h2>
+          {!meme ? (
+            <p>Crypto Meme (fallback)</p>
+          ) : (
+            <>
+              <p>{meme.title}</p>
+              <img src={meme.url} alt="meme" style={{ width: '100%', borderRadius: 8 }} />
+              <div style={{ marginTop: 8 }}>
+                <button onClick={() => sendFeedback('meme', meme.url, 1)}>👍</button>
+                <button onClick={() => sendFeedback('meme', meme.url, -1)}>👎</button>
+              </div>
+            </>
           )}
         </div>
       </div>
 
-      <button className="btn btn-primary refresh-btn" onClick={loadDashboardData}>
-        🔄 Refresh Dashboard
-      </button>
+      <div style={{ marginTop: 16 }}>
+        <button className="btn btn-primary" onClick={load}>
+          Refresh Data
+        </button>
+      </div>
     </div>
   );
 };
