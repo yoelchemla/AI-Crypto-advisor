@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import api from '../utils/api';
 import './Dashboard.css';
 
@@ -23,7 +23,7 @@ const Dashboard = ({ onLogout }) => {
       id: c.id,
       name: c.name,
       price: c.current_price,
-      change_24h: c.price_change_percentage_24h
+      change_24h: c.price_change_percentage_24h,
     }));
   };
 
@@ -36,7 +36,7 @@ const Dashboard = ({ onLogout }) => {
     return list.slice(0, 5).map((n) => ({
       title: n.title,
       url: n.url,
-      source: { title: n.source || 'CryptoCompare' }
+      source: { title: n.source || 'CryptoCompare' },
     }));
   };
 
@@ -60,7 +60,15 @@ const Dashboard = ({ onLogout }) => {
     return res.data?.insight || '';
   };
 
-  const load = async () => {
+  const sendFeedback = async (content_type, content_id, vote) => {
+    try {
+      await api.post('/dashboard/feedback', { content_type, content_id, vote });
+    } catch (e) {
+      console.error('Feedback failed', e?.response?.data || e?.message);
+    }
+  };
+
+  const load = useCallback(async () => {
     setLoading(true);
     setError('');
 
@@ -68,7 +76,7 @@ const Dashboard = ({ onLogout }) => {
       fetchPricesClient(),
       fetchNewsClient(),
       fetchMemeClient(),
-      fetchInsightBackend()
+      fetchInsightBackend(),
     ]);
 
     const [p, n, m, i] = results;
@@ -83,27 +91,21 @@ const Dashboard = ({ onLogout }) => {
     else setMeme(null);
 
     if (i.status === 'fulfilled') setInsight(i.value);
-    else setInsight('Crypto markets remain volatile. Diversify, manage risk, and stay informed.');
+    else
+      setInsight(
+        'Crypto markets remain volatile. Diversify, manage risk, and stay informed.'
+      );
 
-    // לא חובה
     if (p.status === 'rejected' || n.status === 'rejected') {
       setError('Some live data sources are unavailable right now.');
     }
 
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
-
-  const sendFeedback = async (content_type, content_id, vote) => {
-    try {
-      await api.post('/dashboard/feedback', { content_type, content_id, vote });
-    } catch (e) {
-      console.error('Feedback failed', e?.response?.data || e?.message);
-    }
-  };
+  }, [load]);
 
   if (loading) return <div className="loading">Loading dashboard...</div>;
 
@@ -134,8 +136,12 @@ const Dashboard = ({ onLogout }) => {
                     </span>
                   )}
                   <span style={{ marginLeft: 10 }}>
-                    <button onClick={() => sendFeedback('price', c.id, 1)}>👍</button>
-                    <button onClick={() => sendFeedback('price', c.id, -1)}>👎</button>
+                    <button onClick={() => sendFeedback('price', c.id, 1)}>
+                      👍
+                    </button>
+                    <button onClick={() => sendFeedback('price', c.id, -1)}>
+                      👎
+                    </button>
                   </span>
                 </li>
               ))}
@@ -157,8 +163,20 @@ const Dashboard = ({ onLogout }) => {
                   <div className="news-meta">
                     <small>{n.source?.title || 'Source'}</small>
                     <span style={{ marginLeft: 10 }}>
-                      <button onClick={() => sendFeedback('news', n.url || String(idx), 1)}>👍</button>
-                      <button onClick={() => sendFeedback('news', n.url || String(idx), -1)}>👎</button>
+                      <button
+                        onClick={() =>
+                          sendFeedback('news', n.url || String(idx), 1)
+                        }
+                      >
+                        👍
+                      </button>
+                      <button
+                        onClick={() =>
+                          sendFeedback('news', n.url || String(idx), -1)
+                        }
+                      >
+                        👎
+                      </button>
                     </span>
                   </div>
                 </li>
@@ -179,10 +197,18 @@ const Dashboard = ({ onLogout }) => {
           ) : (
             <>
               <p>{meme.title}</p>
-              <img src={meme.url} alt="meme" style={{ width: '100%', borderRadius: 8 }} />
+              <img
+                src={meme.url}
+                alt="meme"
+                style={{ width: '100%', borderRadius: 8 }}
+              />
               <div style={{ marginTop: 8 }}>
-                <button onClick={() => sendFeedback('meme', meme.url, 1)}>👍</button>
-                <button onClick={() => sendFeedback('meme', meme.url, -1)}>👎</button>
+                <button onClick={() => sendFeedback('meme', meme.url, 1)}>
+                  👍
+                </button>
+                <button onClick={() => sendFeedback('meme', meme.url, -1)}>
+                  👎
+                </button>
               </div>
             </>
           )}
