@@ -5,24 +5,18 @@ const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
-/* ===========================
-   Small in-memory cache (reduce rate limits)
-=========================== */
+// simple cache to reduce rate limits
 const cache = {
   prices: { ts: 0, data: null },
   news: { ts: 0, data: null },
   meme: { ts: 0, data: null }
 };
-const TTL_PRICES_MS = 30_000; // 30s
-const TTL_NEWS_MS = 60_000;   // 60s
-const TTL_MEME_MS = 60_000;   // 60s
+const TTL_PRICES_MS = 30_000;
+const TTL_NEWS_MS = 60_000;
+const TTL_MEME_MS = 60_000;
 
 function safeJsonParse(value, fallback) {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return fallback;
-  }
+  try { return JSON.parse(value); } catch { return fallback; }
 }
 
 /* ===========================
@@ -71,10 +65,8 @@ router.post('/preferences', authenticateToken, (req, res) => {
 });
 
 /* ===========================
-   PRICES – CoinGecko (Demo/Free/Pro safe)
-   IMPORTANT:
-   - Demo key MUST use api.coingecko.com (not pro-api)
-   - Pro key can use pro-api, but api endpoint also works.
+   PRICES – CoinGecko FREE (REAL DATA)
+   No API key needed.
 =========================== */
 
 router.get('/prices', authenticateToken, async (req, res) => {
@@ -84,24 +76,11 @@ router.get('/prices', authenticateToken, async (req, res) => {
       return res.json(cache.prices.data);
     }
 
-    // If user has preferences, you can use them; keep it simple & stable:
     const coins = ['bitcoin', 'ethereum', 'solana'];
 
-    // Use non-pro base URL by default (works with demo/free keys)
-    const baseUrl = process.env.COINGECKO_BASE_URL || 'https://api.coingecko.com/api/v3';
-
-    const headers = {};
-    // CoinGecko supports keys via header on some plans; harmless if ignored:
-    if (process.env.COINGECKO_API_KEY) {
-      headers['x-cg-pro-api-key'] = process.env.COINGECKO_API_KEY;
-      // some docs use: x-cg-demo-api-key
-      headers['x-cg-demo-api-key'] = process.env.COINGECKO_API_KEY;
-    }
-
     const response = await axios.get(
-      `${baseUrl}/coins/markets`,
+      'https://api.coingecko.com/api/v3/coins/markets',
       {
-        headers,
         params: {
           vs_currency: 'usd',
           ids: coins.join(','),
@@ -120,25 +99,21 @@ router.get('/prices', authenticateToken, async (req, res) => {
 
     const payload = { prices };
     cache.prices = { ts: now, data: payload };
-
     return res.json(payload);
   } catch (error) {
-    console.error('CoinGecko prices error:', error.response?.status, error.response?.data || error.message);
+    console.error('Prices error:', error.response?.status, error.response?.data || error.message);
+    // fallback with last cache if exists
+    if (cache.prices.data) return res.json(cache.prices.data);
 
-    // Do NOT return 500 that kills UI; return fallback payload
-    const fallback = {
-      prices: [
-        { id: 'bitcoin', name: 'Bitcoin', price: 0, change_24h: 0 },
-        { id: 'ethereum', name: 'Ethereum', price: 0, change_24h: 0 }
-      ],
-      note: 'Prices temporarily unavailable (fallback).'
-    };
-    return res.json(fallback);
+    return res.json({
+      prices: [],
+      note: 'Prices temporarily unavailable'
+    });
   }
 });
 
 /* ===========================
-   NEWS – CryptoCompare (safe parse + fallback)
+   NEWS – CryptoCompare (REAL DATA)
 =========================== */
 
 router.get('/news', authenticateToken, async (req, res) => {
@@ -168,17 +143,11 @@ router.get('/news', authenticateToken, async (req, res) => {
     return res.json(payload);
   } catch (error) {
     console.error('News error:', error.response?.status, error.response?.data || error.message);
+    if (cache.news.data) return res.json(cache.news.data);
 
-    // fallback (no 500)
     return res.json({
-      news: [
-        {
-          title: 'News temporarily unavailable (fallback)',
-          url: '#',
-          published_at: new Date().toISOString(),
-          source: { title: 'Fallback' }
-        }
-      ]
+      news: [],
+      note: 'News temporarily unavailable'
     });
   }
 });
@@ -194,7 +163,7 @@ router.get('/insight', authenticateToken, (req, res) => {
 });
 
 /* ===========================
-   MEME – Reddit (cache + fallback for 429)
+   MEME – Reddit (REAL DATA when possible)
 =========================== */
 
 router.get('/meme', authenticateToken, async (req, res) => {
@@ -213,20 +182,16 @@ router.get('/meme', authenticateToken, async (req, res) => {
       .map(x => x.data)
       .filter(p => p && p.post_hint === 'image' && p.url);
 
-    let payload;
-    if (posts.length) {
-      const randomPost = posts[Math.floor(Math.random() * posts.length)];
-      payload = { url: randomPost.url, title: randomPost.title, source: 'Reddit' };
-    } else {
-      payload = { url: 'https://i.imgur.com/0Z8FQvK.jpeg', title: 'Crypto Meme (fallback)', source: 'Static' };
-    }
+    const payload = posts.length
+      ? { url: posts[Math.floor(Math.random() * posts.length)].url, title: posts[Math.floor(Math.random() * posts.length)].title, source: 'Reddit' }
+      : { url: 'https://i.imgur.com/0Z8FQvK.jpeg', title: 'Crypto Meme (fallback)', source: 'Static' };
 
     cache.meme = { ts: now, data: payload };
     return res.json(payload);
   } catch (error) {
     console.error('Meme error:', error.response?.status, error.response?.data || error.message);
+    if (cache.meme.data) return res.json(cache.meme.data);
 
-    // fallback (no 500)
     return res.json({
       url: 'https://i.imgur.com/0Z8FQvK.jpeg',
       title: 'Crypto Meme (fallback)',
