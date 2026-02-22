@@ -6,99 +6,19 @@ const { authenticateToken } = require('../middleware/auth');
 const router = express.Router();
 
 /* ===========================
-   USER PREFERENCES
-=========================== */
-
-// Get user preferences
-router.get('/preferences', authenticateToken, (req, res) => {
-  db.get(
-    'SELECT * FROM user_preferences WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
-    [req.user.id],
-    (err, preferences) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Database error' });
-      }
-      res.json(preferences || null);
-    }
-  );
-});
-
-// Save onboarding preferences
-router.post('/preferences', authenticateToken, (req, res) => {
-  const { interested_assets, investor_type, content_types } = req.body;
-
-  if (!interested_assets || !investor_type || !content_types) {
-    return res.status(400).json({
-      error: 'All preference fields are required'
-    });
-  }
-
-  db.run(
-    `INSERT INTO user_preferences 
-     (user_id, interested_assets, investor_type, content_types) 
-     VALUES (?, ?, ?, ?)`,
-    [
-      req.user.id,
-      JSON.stringify(interested_assets),
-      investor_type,
-      JSON.stringify(content_types)
-    ],
-    function (err) {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Failed to save preferences' });
-      }
-
-      res.json({
-        message: 'Preferences saved successfully',
-        id: this.lastID
-      });
-    }
-  );
-});
-
-
-/* ===========================
-   MARKET NEWS (CryptoPanic)
-=========================== */
-
-router.get('/news', authenticateToken, async (req, res) => {
-  try {
-    const response = await axios.get(
-      'https://cryptopanic.com/api/v1/posts/',
-      {
-        params: {
-          public: true,
-          filter: 'hot'
-        }
-      }
-    );
-
-    const news = response.data.results
-      ? response.data.results.slice(0, 5)
-      : [];
-
-    res.json({ news });
-
-  } catch (error) {
-    console.error(error.message);
-    res.status(500).json({ error: 'Failed to fetch news' });
-  }
-});
-
-
-/* ===========================
-   PRICES (CoinGecko – Real API)
+   PRICES – CoinGecko Pro
 =========================== */
 
 router.get('/prices', authenticateToken, async (req, res) => {
   try {
-    let coins = ['bitcoin', 'ethereum', 'solana'];
+    const coins = ['bitcoin', 'ethereum', 'solana'];
 
     const response = await axios.get(
-      'https://api.coingecko.com/api/v3/coins/markets',
+      'https://pro-api.coingecko.com/api/v3/coins/markets',
       {
+        headers: {
+          'x-cg-pro-api-key': process.env.COINGECKO_API_KEY
+        },
         params: {
           vs_currency: 'usd',
           ids: coins.join(','),
@@ -117,32 +37,36 @@ router.get('/prices', authenticateToken, async (req, res) => {
     res.json({ prices });
 
   } catch (error) {
-    console.error(error.message);
-    res.status(500).json({ error: 'Failed to fetch prices' });
+    console.error('CoinGecko Error:', error.response?.data || error.message);
+
+    res.status(500).json({
+      error: 'Failed to fetch prices from CoinGecko'
+    });
   }
 });
 
-
 /* ===========================
-   AI INSIGHT
+   NEWS – CryptoCompare (Stable API)
 =========================== */
 
-router.get('/insight', authenticateToken, async (req, res) => {
+router.get('/news', authenticateToken, async (req, res) => {
   try {
-    const staticInsight =
-      'Crypto markets remain volatile. Consider risk management strategies and stay diversified.';
+    const response = await axios.get(
+      'https://min-api.cryptocompare.com/data/v2/news/?lang=EN'
+    );
 
-    res.json({ insight: staticInsight });
+    const news = response.data.Data.slice(0, 5);
+
+    res.json({ news });
 
   } catch (error) {
-    console.error(error.message);
-    res.status(500).json({ error: 'Failed to generate insight' });
+    console.error('News API Error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch news' });
   }
 });
 
-
 /* ===========================
-   MEME (Reddit)
+   MEME – Reddit
 =========================== */
 
 router.get('/meme', authenticateToken, async (req, res) => {
@@ -156,7 +80,7 @@ router.get('/meme', authenticateToken, async (req, res) => {
       .filter(post => post.data.post_hint === 'image');
 
     if (!posts.length) {
-      return res.status(500).json({ error: 'No memes found' });
+      return res.status(404).json({ error: 'No memes found' });
     }
 
     const randomPost =
@@ -164,16 +88,14 @@ router.get('/meme', authenticateToken, async (req, res) => {
 
     res.json({
       url: randomPost.data.url,
-      title: randomPost.data.title,
-      source: 'Reddit'
+      title: randomPost.data.title
     });
 
   } catch (error) {
-    console.error(error.message);
+    console.error('Meme API Error:', error.message);
     res.status(500).json({ error: 'Failed to fetch meme' });
   }
 });
-
 
 /* ===========================
    FEEDBACK
