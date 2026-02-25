@@ -1,221 +1,347 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import api from '../utils/api';
 import './Dashboard.css';
 
 const Dashboard = ({ onLogout }) => {
-  const [loading, setLoading] = useState(true);
-  const [news, setNews] = useState([]);
   const [prices, setPrices] = useState([]);
+  const [news, setNews] = useState([]);
   const [insight, setInsight] = useState('');
   const [meme, setMeme] = useState(null);
-  const [votedItems, setVotedItems] = useState(new Set());
 
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const loadDashboardData = async () => {
-    setLoading(true);
-    try {
-      // Load all dashboard sections in parallel
-      const [newsRes, pricesRes, insightRes, memeRes] = await Promise.all([
-        api.get('/dashboard/news'),
-        api.get('/dashboard/prices'),
-        api.get('/dashboard/insight'),
-        api.get('/dashboard/meme')
-      ]);
+  const [error, setError] = useState('');
+  const [notes, setNotes] = useState({
+    prices: '',
+    news: ''
+  });
 
-      setNews(newsRes.data.news || []);
-      setPrices(pricesRes.data.prices || []);
-      setInsight(insightRes.data.insight || '');
-      setMeme(memeRes.data || null);
-    } catch (error) {
-      console.error('Error loading dashboard:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVote = async (contentType, contentId, vote) => {
-    const voteKey = `${contentType}-${contentId}`;
-    if (votedItems.has(voteKey)) {
-      return; // Already voted
-    }
-
+  const sendFeedback = async (contentType, contentId, vote) => {
     try {
       await api.post('/dashboard/feedback', {
         content_type: contentType,
-        content_id: contentId,
-        vote: vote
+        content_id: String(contentId),
+        vote
       });
-      setVotedItems(prev => new Set([...prev, voteKey]));
-    } catch (error) {
-      console.error('Error submitting vote:', error);
+      // אופציונלי: אפשר להוסיף toast בעתיד
+    } catch (err) {
+      console.error('Feedback error:', err);
+    }
+  };
+
+  const load = useCallback(async (forceRefresh = false) => {
+    try {
+      if (forceRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
+      setError('');
+
+      const params = forceRefresh ? { refresh: 1 } : undefined;
+
+      const [newsRes, pricesRes, insightRes, memeRes] = await Promise.all([
+        api.get('/dashboard/news', { params }),
+        api.get('/dashboard/prices', { params }),
+        api.get('/dashboard/insight', { params }),
+        api.get('/dashboard/meme', { params })
+      ]);
+
+      setNews(Array.isArray(newsRes.data?.news) ? newsRes.data.news : []);
+      setPrices(Array.isArray(pricesRes.data?.prices) ? pricesRes.data.prices : []);
+      setInsight(insightRes.data?.insight || '');
+      setMeme(memeRes.data || null);
+
+      setNotes({
+        prices: pricesRes.data?.note || '',
+        news: newsRes.data?.note || ''
+      });
+    } catch (err) {
+      console.error('Error loading dashboard:', err);
+      setError('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load(false);
+  }, [load]);
+
+  const handleRefresh = () => {
+    load(true);
+  };
+
+  const formatPrice = (value) => {
+    const num = Number(value || 0);
+    return `$${num.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })}`;
+    };
+
+  const formatChange = (value) => {
+    const num = Number(value || 0);
+    const sign = num >= 0 ? '↑' : '↓';
+    return `${sign} ${Math.abs(num).toFixed(2)}%`;
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+      return new Date(dateStr).toLocaleString();
+    } catch {
+      return '';
     }
   };
 
   if (loading) {
     return (
       <div className="dashboard-container">
-        <div className="loading">Loading your dashboard...</div>
+        <div className="dashboard-header">
+          <h1>Crypto Dashboard</h1>
+        </div>
+        <div className="loading">Loading dashboard...</div>
       </div>
     );
   }
 
   return (
     <div className="dashboard-container">
-      <header className="dashboard-header">
-        <h1>Your Crypto Dashboard</h1>
-        <button className="btn btn-secondary" onClick={onLogout}>
-          Logout
-        </button>
-      </header>
+      <div className="dashboard-header">
+        <h1>Crypto Dashboard</h1>
 
-      <div className="dashboard-grid">
-        {/* Market News Section */}
-        <div className="dashboard-card">
-          <h2>📰 Market News</h2>
-          <div className="news-list">
-            {news.length > 0 ? (
-              news.map((item, index) => {
-                const voteKey = `news-${index}`;
-                const hasVoted = votedItems.has(voteKey);
-                return (
-                  <div key={index} className="news-item">
-                    <h3>{item.title}</h3>
-                    <p className="news-source">{item.source?.title || 'Crypto News'}</p>
-                    {item.url && item.url !== '#' && (
-                      <a href={item.url} target="_blank" rel="noopener noreferrer" className="news-link">
-                        Read more →
-                      </a>
-                    )}
-                    <div className="vote-buttons">
-                      <button
-                        className={`vote-btn up ${hasVoted ? 'disabled' : ''}`}
-                        onClick={() => handleVote('news', index, 1)}
-                        disabled={hasVoted}
-                      >
-                        👍
-                      </button>
-                      <button
-                        className={`vote-btn down ${hasVoted ? 'disabled' : ''}`}
-                        onClick={() => handleVote('news', index, -1)}
-                        disabled={hasVoted}
-                      >
-                        👎
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <p>No news available at the moment.</p>
-            )}
-          </div>
-        </div>
+        <div className="dashboard-actions">
+          <button
+            className="btn btn-secondary"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            type="button"
+          >
+            {refreshing ? 'Refreshing...' : 'Refresh Data'}
+          </button>
 
-        {/* Coin Prices Section */}
-        <div className="dashboard-card">
-          <h2>💰 Coin Prices</h2>
-          <div className="prices-list">
-            {prices.length > 0 ? (
-              prices.map((coin, index) => {
-                const voteKey = `price-${coin.id}`;
-                const hasVoted = votedItems.has(voteKey);
-                const changeColor = coin.change_24h >= 0 ? '#28a745' : '#dc3545';
-                return (
-                  <div key={coin.id} className="price-item">
-                    <div className="price-header">
-                      <h3>{coin.name}</h3>
-                      <span className="price-value">${coin.price?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="price-change" style={{ color: changeColor }}>
-                      {coin.change_24h >= 0 ? '↑' : '↓'} {Math.abs(coin.change_24h?.toFixed(2) || 0)}%
-                    </div>
-                    <div className="vote-buttons">
-                      <button
-                        className={`vote-btn up ${hasVoted ? 'disabled' : ''}`}
-                        onClick={() => handleVote('price', coin.id, 1)}
-                        disabled={hasVoted}
-                      >
-                        👍
-                      </button>
-                      <button
-                        className={`vote-btn down ${hasVoted ? 'disabled' : ''}`}
-                        onClick={() => handleVote('price', coin.id, -1)}
-                        disabled={hasVoted}
-                      >
-                        👎
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <p>No price data available.</p>
-            )}
-          </div>
-        </div>
-
-        {/* AI Insight Section */}
-        <div className="dashboard-card">
-          <h2>🤖 AI Insight of the Day</h2>
-          <div className="insight-content">
-            <p>{insight || 'Loading insight...'}</p>
-            {insight && (
-              <div className="vote-buttons">
-                <button
-                  className={`vote-btn up ${votedItems.has('insight-daily') ? 'disabled' : ''}`}
-                  onClick={() => handleVote('insight', 'daily', 1)}
-                  disabled={votedItems.has('insight-daily')}
-                >
-                  👍
-                </button>
-                <button
-                  className={`vote-btn down ${votedItems.has('insight-daily') ? 'disabled' : ''}`}
-                  onClick={() => handleVote('insight', 'daily', -1)}
-                  disabled={votedItems.has('insight-daily')}
-                >
-                  👎
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Meme Section */}
-        <div className="dashboard-card">
-          <h2>😄 Fun Crypto Meme</h2>
-          {meme ? (
-            <div className="meme-content">
-              <img src={meme.url} alt={meme.title} className="meme-image" />
-              <p className="meme-title">{meme.title}</p>
-              <div className="vote-buttons">
-                <button
-                  className={`vote-btn up ${votedItems.has('meme-daily') ? 'disabled' : ''}`}
-                  onClick={() => handleVote('meme', 'daily', 1)}
-                  disabled={votedItems.has('meme-daily')}
-                >
-                  👍
-                </button>
-                <button
-                  className={`vote-btn down ${votedItems.has('meme-daily') ? 'disabled' : ''}`}
-                  onClick={() => handleVote('meme', 'daily', -1)}
-                  disabled={votedItems.has('meme-daily')}
-                >
-                  👎
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p>No meme available at the moment.</p>
-          )}
+          <button className="btn btn-danger" onClick={onLogout} type="button">
+            Logout
+          </button>
         </div>
       </div>
 
-      <button className="btn btn-primary refresh-btn" onClick={loadDashboardData}>
-        🔄 Refresh Dashboard
-      </button>
+      {error && <div className="error">{error}</div>}
+
+      {/* AI Insight */}
+      <section className="dashboard-section">
+        <div className="section-header-row">
+          <h2>🤖 AI Insight of the Day</h2>
+          <div className="feedback-buttons">
+            <button
+              type="button"
+              className="feedback-btn"
+              onClick={() => sendFeedback('insight', 'daily_insight', 1)}
+              title="Helpful"
+            >
+              👍
+            </button>
+            <button
+              type="button"
+              className="feedback-btn"
+              onClick={() => sendFeedback('insight', 'daily_insight', -1)}
+              title="Not helpful"
+            >
+              👎
+            </button>
+          </div>
+        </div>
+
+        <div className="insight-card">
+          <p>{insight || 'Loading insight...'}</p>
+        </div>
+      </section>
+
+      {/* Prices */}
+      <section className="dashboard-section">
+        <div className="section-header-row">
+          <h2>💰 Coin Prices</h2>
+          <div className="feedback-buttons">
+            <button
+              type="button"
+              className="feedback-btn"
+              onClick={() => sendFeedback('prices', 'prices_section', 1)}
+              title="Helpful"
+            >
+              👍
+            </button>
+            <button
+              type="button"
+              className="feedback-btn"
+              onClick={() => sendFeedback('prices', 'prices_section', -1)}
+              title="Not helpful"
+            >
+              👎
+            </button>
+          </div>
+        </div>
+
+        {notes.prices && <div className="info-note">{notes.prices}</div>}
+
+        {!prices || prices.length === 0 ? (
+          <p>No price data available.</p>
+        ) : (
+          <div className="prices-grid">
+            {prices.map((coin) => (
+              <div key={coin.id} className="price-card">
+                <h3>{coin.name}</h3>
+                <p className="price-value">{formatPrice(coin.price)}</p>
+                <p className={`price-change ${Number(coin.change_24h) >= 0 ? 'positive' : 'negative'}`}>
+                  {formatChange(coin.change_24h)}
+                </p>
+
+                <div className="inline-feedback">
+                  <button
+                    type="button"
+                    className="feedback-btn small"
+                    onClick={() => sendFeedback('price_coin', coin.id, 1)}
+                    title={`Like ${coin.name}`}
+                  >
+                    👍
+                  </button>
+                  <button
+                    type="button"
+                    className="feedback-btn small"
+                    onClick={() => sendFeedback('price_coin', coin.id, -1)}
+                    title={`Dislike ${coin.name}`}
+                  >
+                    👎
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* News */}
+      <section className="dashboard-section">
+        <div className="section-header-row">
+          <h2>📰 Market News</h2>
+          <div className="feedback-buttons">
+            <button
+              type="button"
+              className="feedback-btn"
+              onClick={() => sendFeedback('news', 'news_section', 1)}
+              title="Helpful"
+            >
+              👍
+            </button>
+            <button
+              type="button"
+              className="feedback-btn"
+              onClick={() => sendFeedback('news', 'news_section', -1)}
+              title="Not helpful"
+            >
+              👎
+            </button>
+          </div>
+        </div>
+
+        {notes.news && <div className="info-note">{notes.news}</div>}
+
+        {!news || news.length === 0 ? (
+          <p>No news available at the moment.</p>
+        ) : (
+          <div className="news-list">
+            {news.map((item, index) => (
+              <div key={item.id || `${item.title}-${index}`} className="news-item">
+                <div className="news-content">
+                  <a
+                    href={item.url || '#'}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="news-title"
+                  >
+                    {item.title || 'Crypto market update'}
+                  </a>
+
+                  <div className="news-meta">
+                    <span>{item.source?.title || 'Unknown source'}</span>
+                    {item.published_at ? <span> • {formatDate(item.published_at)}</span> : null}
+                  </div>
+                </div>
+
+                <div className="inline-feedback">
+                  <button
+                    type="button"
+                    className="feedback-btn small"
+                    onClick={() =>
+                      sendFeedback('news_item', item.id || item.url || `news-${index}`, 1)
+                    }
+                    title="Like article"
+                  >
+                    👍
+                  </button>
+                  <button
+                    type="button"
+                    className="feedback-btn small"
+                    onClick={() =>
+                      sendFeedback('news_item', item.id || item.url || `news-${index}`, -1)
+                    }
+                    title="Dislike article"
+                  >
+                    👎
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Meme */}
+      <section className="dashboard-section">
+        <div className="section-header-row">
+          <h2>😄 Fun Crypto Meme</h2>
+          <div className="feedback-buttons">
+            <button
+              type="button"
+              className="feedback-btn"
+              onClick={() => sendFeedback('meme', meme?.url || meme?.title || 'meme', 1)}
+              title="Funny"
+            >
+              👍
+            </button>
+            <button
+              type="button"
+              className="feedback-btn"
+              onClick={() => sendFeedback('meme', meme?.url || meme?.title || 'meme', -1)}
+              title="Not funny"
+            >
+              👎
+            </button>
+          </div>
+        </div>
+
+        {!meme ? (
+          <p>No meme available.</p>
+        ) : (
+          <div className="meme-card">
+            <h3>{meme.title || 'Crypto Meme'}</h3>
+            {meme.url ? (
+              <img
+                src={meme.url}
+                alt={meme.title || 'Crypto Meme'}
+                className="meme-image"
+                loading="lazy"
+              />
+            ) : (
+              <p>No meme image available.</p>
+            )}
+            <p className="meme-source">{meme.source || 'Unknown source'}</p>
+          </div>
+        )}
+      </section>
     </div>
   );
 };
