@@ -3,345 +3,223 @@ import api from '../utils/api';
 import './Dashboard.css';
 
 const Dashboard = ({ onLogout }) => {
+  const [loading, setLoading] = useState(true);
   const [prices, setPrices] = useState([]);
   const [news, setNews] = useState([]);
   const [insight, setInsight] = useState('');
   const [meme, setMeme] = useState(null);
-
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
   const [error, setError] = useState('');
-  const [notes, setNotes] = useState({
-    prices: '',
-    news: ''
-  });
 
-  const sendFeedback = async (contentType, contentId, vote) => {
+  const fetchPricesClient = async () => {
+    const coins = ['bitcoin', 'ethereum', 'solana'];
+    const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${coins.join(
+      ','
+    )}&price_change_percentage=24h`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    return (Array.isArray(data) ? data : []).map((c) => ({
+      id: c.id,
+      name: c.name,
+      price: c.current_price,
+      change_24h: c.price_change_percentage_24h,
+    }));
+  };
+
+  const fetchNewsClient = async () => {
+    const url = `https://min-api.cryptocompare.com/data/v2/news/?lang=EN`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const arr = data?.Data;
+    const list = Array.isArray(arr) ? arr : [];
+    return list.slice(0, 5).map((n) => ({
+      title: n.title,
+      url: n.url,
+      source: { title: n.source || 'CryptoCompare' },
+    }));
+  };
+
+  const fetchMemeClient = async () => {
+    const url = `https://www.reddit.com/r/cryptomemes/hot.json?limit=10`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const posts = (data?.data?.children || [])
+      .map((x) => x.data)
+      .filter((p) => p && p.post_hint === 'image' && p.url);
+
+    if (!posts.length) return null;
+
+    const pick = posts[Math.floor(Math.random() * posts.length)];
+    return { url: pick.url, title: pick.title, source: 'Reddit' };
+  };
+
+  const fetchInsightBackend = async () => {
+    const res = await api.get('/dashboard/insight');
+    return res.data?.insight || '';
+  };
+
+  const sendFeedback = async (content_type, content_id, vote) => {
     try {
-      await api.post('/dashboard/feedback', {
-        content_type: contentType,
-        content_id: String(contentId),
-        vote
-      });
-      // אופציונלי: אפשר להוסיף toast בעתיד
-    } catch (err) {
-      console.error('Feedback error:', err);
+      await api.post('/dashboard/feedback', { content_type, content_id, vote });
+    } catch (e) {
+      console.error('Feedback failed', e?.response?.data || e?.message);
     }
   };
 
-  const load = useCallback(async (forceRefresh = false) => {
-    try {
-      if (forceRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
 
-      setError('');
+    const results = await Promise.allSettled([
+      fetchPricesClient(),
+      fetchNewsClient(),
+      fetchMemeClient(),
+      fetchInsightBackend(),
+    ]);
 
-      const params = forceRefresh ? { refresh: 1 } : undefined;
+    const [p, n, m, i] = results;
 
-      const [newsRes, pricesRes, insightRes, memeRes] = await Promise.all([
-        api.get('/dashboard/news', { params }),
-        api.get('/dashboard/prices', { params }),
-        api.get('/dashboard/insight', { params }),
-        api.get('/dashboard/meme', { params })
-      ]);
+    if (p.status === 'fulfilled') setPrices(p.value);
+    else setPrices([]);
 
-      setNews(Array.isArray(newsRes.data?.news) ? newsRes.data.news : []);
-      setPrices(Array.isArray(pricesRes.data?.prices) ? pricesRes.data.prices : []);
-      setInsight(insightRes.data?.insight || '');
-      setMeme(memeRes.data || null);
+    if (n.status === 'fulfilled') setNews(n.value);
+    else setNews([]);
 
-      setNotes({
-        prices: pricesRes.data?.note || '',
-        news: newsRes.data?.note || ''
-      });
-    } catch (err) {
-      console.error('Error loading dashboard:', err);
-      setError('Failed to load dashboard data');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+    if (m.status === 'fulfilled') setMeme(m.value);
+    else setMeme(null);
+
+    if (i.status === 'fulfilled') setInsight(i.value);
+    else
+      setInsight(
+        'Crypto markets remain volatile. Diversify, manage risk, and stay informed.'
+      );
+
+    if (p.status === 'rejected' || n.status === 'rejected') {
+      setError('Some live data sources are unavailable right now.');
     }
+
+    setLoading(false);
   }, []);
 
   useEffect(() => {
-    load(false);
+    load();
   }, [load]);
 
-  const handleRefresh = () => {
-    load(true);
-  };
-
-  const formatPrice = (value) => {
-    const num = Number(value || 0);
-    return `$${num.toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    })}`;
-    };
-
-  const formatChange = (value) => {
-    const num = Number(value || 0);
-    const sign = num >= 0 ? '↑' : '↓';
-    return `${sign} ${Math.abs(num).toFixed(2)}%`;
-  };
-
-  const formatDate = (dateStr) => {
-    if (!dateStr) return '';
-    try {
-      return new Date(dateStr).toLocaleString();
-    } catch {
-      return '';
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="dashboard-container">
-        <div className="dashboard-header">
-          <h1>Crypto Dashboard</h1>
-        </div>
-        <div className="loading">Loading dashboard...</div>
-      </div>
-    );
-  }
+  if (loading) return <div className="loading">Loading dashboard...</div>;
 
   return (
     <div className="dashboard-container">
       <div className="dashboard-header">
-        <h1>Crypto Dashboard</h1>
-
-        <div className="dashboard-actions">
-          <button
-            className="btn btn-secondary"
-            onClick={handleRefresh}
-            disabled={refreshing}
-            type="button"
-          >
-            {refreshing ? 'Refreshing...' : 'Refresh Data'}
-          </button>
-
-          <button className="btn btn-danger" onClick={onLogout} type="button">
-            Logout
-          </button>
-        </div>
+        <h1>Daily Dashboard</h1>
+        <button className="btn btn-secondary" onClick={onLogout}>
+          Logout
+        </button>
       </div>
 
       {error && <div className="error">{error}</div>}
 
-      {/* AI Insight */}
-      <section className="dashboard-section">
-        <div className="section-header-row">
-          <h2>🤖 AI Insight of the Day</h2>
-          <div className="feedback-buttons">
-            <button
-              type="button"
-              className="feedback-btn"
-              onClick={() => sendFeedback('insight', 'daily_insight', 1)}
-              title="Helpful"
-            >
-              👍
-            </button>
-            <button
-              type="button"
-              className="feedback-btn"
-              onClick={() => sendFeedback('insight', 'daily_insight', -1)}
-              title="Not helpful"
-            >
-              👎
-            </button>
-          </div>
-        </div>
-
-        <div className="insight-card">
-          <p>{insight || 'Loading insight...'}</p>
-        </div>
-      </section>
-
-      {/* Prices */}
-      <section className="dashboard-section">
-        <div className="section-header-row">
+      <div className="dashboard-grid">
+        <div className="card">
           <h2>💰 Coin Prices</h2>
-          <div className="feedback-buttons">
-            <button
-              type="button"
-              className="feedback-btn"
-              onClick={() => sendFeedback('prices', 'prices_section', 1)}
-              title="Helpful"
-            >
-              👍
-            </button>
-            <button
-              type="button"
-              className="feedback-btn"
-              onClick={() => sendFeedback('prices', 'prices_section', -1)}
-              title="Not helpful"
-            >
-              👎
-            </button>
-          </div>
+          {prices.length === 0 ? (
+            <p>No price data available.</p>
+          ) : (
+            <ul className="prices-list">
+              {prices.map((c) => (
+                <li key={c.id} className="price-item">
+                  <strong>{c.name}</strong> — ${c.price}{' '}
+                  {typeof c.change_24h === 'number' && (
+                    <span className={c.change_24h >= 0 ? 'pos' : 'neg'}>
+                      ({c.change_24h.toFixed(2)}%)
+                    </span>
+                  )}
+                  <span style={{ marginLeft: 10 }}>
+                    <button onClick={() => sendFeedback('price', c.id, 1)}>
+                      👍
+                    </button>
+                    <button onClick={() => sendFeedback('price', c.id, -1)}>
+                      👎
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
-        {notes.prices && <div className="info-note">{notes.prices}</div>}
-
-        {!prices || prices.length === 0 ? (
-          <p>No price data available.</p>
-        ) : (
-          <div className="prices-grid">
-            {prices.map((coin) => (
-              <div key={coin.id} className="price-card">
-                <h3>{coin.name}</h3>
-                <p className="price-value">{formatPrice(coin.price)}</p>
-                <p className={`price-change ${Number(coin.change_24h) >= 0 ? 'positive' : 'negative'}`}>
-                  {formatChange(coin.change_24h)}
-                </p>
-
-                <div className="inline-feedback">
-                  <button
-                    type="button"
-                    className="feedback-btn small"
-                    onClick={() => sendFeedback('price_coin', coin.id, 1)}
-                    title={`Like ${coin.name}`}
-                  >
-                    👍
-                  </button>
-                  <button
-                    type="button"
-                    className="feedback-btn small"
-                    onClick={() => sendFeedback('price_coin', coin.id, -1)}
-                    title={`Dislike ${coin.name}`}
-                  >
-                    👎
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* News */}
-      <section className="dashboard-section">
-        <div className="section-header-row">
+        <div className="card">
           <h2>📰 Market News</h2>
-          <div className="feedback-buttons">
-            <button
-              type="button"
-              className="feedback-btn"
-              onClick={() => sendFeedback('news', 'news_section', 1)}
-              title="Helpful"
-            >
-              👍
-            </button>
-            <button
-              type="button"
-              className="feedback-btn"
-              onClick={() => sendFeedback('news', 'news_section', -1)}
-              title="Not helpful"
-            >
-              👎
-            </button>
-          </div>
-        </div>
-
-        {notes.news && <div className="info-note">{notes.news}</div>}
-
-        {!news || news.length === 0 ? (
-          <p>No news available at the moment.</p>
-        ) : (
-          <div className="news-list">
-            {news.map((item, index) => (
-              <div key={item.id || `${item.title}-${index}`} className="news-item">
-                <div className="news-content">
-                  <a
-                    href={item.url || '#'}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="news-title"
-                  >
-                    {item.title || 'Crypto market update'}
+          {news.length === 0 ? (
+            <p>No news available at the moment.</p>
+          ) : (
+            <ul className="news-list">
+              {news.map((n, idx) => (
+                <li key={n.url || idx} className="news-item">
+                  <a href={n.url} target="_blank" rel="noreferrer">
+                    {n.title}
                   </a>
-
                   <div className="news-meta">
-                    <span>{item.source?.title || 'Unknown source'}</span>
-                    {item.published_at ? <span> • {formatDate(item.published_at)}</span> : null}
+                    <small>{n.source?.title || 'Source'}</small>
+                    <span style={{ marginLeft: 10 }}>
+                      <button
+                        onClick={() =>
+                          sendFeedback('news', n.url || String(idx), 1)
+                        }
+                      >
+                        👍
+                      </button>
+                      <button
+                        onClick={() =>
+                          sendFeedback('news', n.url || String(idx), -1)
+                        }
+                      >
+                        👎
+                      </button>
+                    </span>
                   </div>
-                </div>
-
-                <div className="inline-feedback">
-                  <button
-                    type="button"
-                    className="feedback-btn small"
-                    onClick={() =>
-                      sendFeedback('news_item', item.id || item.url || `news-${index}`, 1)
-                    }
-                    title="Like article"
-                  >
-                    👍
-                  </button>
-                  <button
-                    type="button"
-                    className="feedback-btn small"
-                    onClick={() =>
-                      sendFeedback('news_item', item.id || item.url || `news-${index}`, -1)
-                    }
-                    title="Dislike article"
-                  >
-                    👎
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Meme */}
-      <section className="dashboard-section">
-        <div className="section-header-row">
-          <h2>😄 Fun Crypto Meme</h2>
-          <div className="feedback-buttons">
-            <button
-              type="button"
-              className="feedback-btn"
-              onClick={() => sendFeedback('meme', meme?.url || meme?.title || 'meme', 1)}
-              title="Funny"
-            >
-              👍
-            </button>
-            <button
-              type="button"
-              className="feedback-btn"
-              onClick={() => sendFeedback('meme', meme?.url || meme?.title || 'meme', -1)}
-              title="Not funny"
-            >
-              👎
-            </button>
-          </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
-        {!meme ? (
-          <p>No meme available.</p>
-        ) : (
-          <div className="meme-card">
-            <h3>{meme.title || 'Crypto Meme'}</h3>
-            {meme.url ? (
+        <div className="card">
+          <h2>🤖 AI Insight of the Day</h2>
+          <p>{insight}</p>
+        </div>
+
+        <div className="card">
+          <h2>😄 Fun Crypto Meme</h2>
+          {!meme ? (
+            <p>Crypto Meme (fallback)</p>
+          ) : (
+            <>
+              <p>{meme.title}</p>
               <img
                 src={meme.url}
-                alt={meme.title || 'Crypto Meme'}
-                className="meme-image"
-                loading="lazy"
+                alt="meme"
+                style={{ width: '100%', borderRadius: 8 }}
               />
-            ) : (
-              <p>No meme image available.</p>
-            )}
-            <p className="meme-source">{meme.source || 'Unknown source'}</p>
-          </div>
-        )}
-      </section>
+              <div style={{ marginTop: 8 }}>
+                <button onClick={() => sendFeedback('meme', meme.url, 1)}>
+                  👍
+                </button>
+                <button onClick={() => sendFeedback('meme', meme.url, -1)}>
+                  👎
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <button className="btn btn-primary" onClick={load}>
+          Refresh Data
+        </button>
+      </div>
     </div>
   );
 };
